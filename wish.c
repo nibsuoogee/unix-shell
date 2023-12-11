@@ -24,6 +24,10 @@ void *null_check_free(void *ptr);
 
 int main(int argc, char **argv)
 {
+    FILE *read_stream = stdin;
+    FILE *batch_file;
+    int batch_mode = 0;
+
     char error_message[128] = "";
     int exit_flag = 0;
     char *parallel_token = NULL;
@@ -58,7 +62,16 @@ int main(int argc, char **argv)
     
     for (int i = 0; i < num_paths; i++) {
         paths[i] = init_paths[i];
-    }       
+    }      
+
+    if (argc == 2) {
+        batch_file = fopen(argv[1], "r");
+        if (batch_file == NULL) {
+            handle_error("fopen");
+        }
+        read_stream = batch_file;
+        batch_mode = 1;
+    } 
 
     while (!exit_flag)
     {
@@ -67,16 +80,24 @@ int main(int argc, char **argv)
             parallel_commands[i] = null_check_free(parallel_commands[i]);
         }
         parallel_commands = null_check_free(parallel_commands);
+        parallel_processes = 0;
 
         if (getcwd(cwd, sizeof(cwd)) == NULL) {
             handle_error("getcwd()");
         }
-        printf("%s wish> ", cwd);
-        lineSize = getline(&line, &len, stdin); // stdin for interactive mode only
-        line[lineSize - 1] = '\0';
+        if (!batch_mode) {
+            printf("%s wish> ", cwd);
+        }
+        
+        lineSize = getline(&line, &len, read_stream);
 
+        if (batch_mode && feof(batch_file)) {
+            break; // instead skip processing, but remember to 
+        }
+
+        line[lineSize - 1] = '\0';
         // start '&' delimited loop
-        parallel_processes = 0;
+        
         parallel_token = strtok(line, "&");
         while (parallel_token != NULL) // parse arguments
         {
@@ -147,7 +168,6 @@ int main(int argc, char **argv)
                         handle_error("malloc");
                     }
                     strcpy(redirect_file, token);
-                    printf("redirect_file: %s.\n",redirect_file);
                     token = strtok(NULL, " ");
                     if (token != NULL) {
                         strcpy(error_message,"usage: command <args> > <file> \n");
@@ -289,26 +309,28 @@ int main(int argc, char **argv)
                 close(pipefd[1]);
                 // > redirection here
                 int output_fd = 1;
+                wait(NULL);
+                ssize_t bytesRead;
                 if (redirect) {
-                    printf("redirect_file: %s.\n",redirect_file);
                     redirect_fd = open(redirect_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                     if (redirect == -1) {
                         handle_error("open");
                     }
                     output_fd = redirect_fd;
-                }
 
-                if (redirect == 1 || runInBackground == 0)
-                {
-                    wait(NULL);
-                    ssize_t bytesRead;
                     while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
                         if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
                             handle_error("write");
                         }
                     }
-                    close(pipefd[0]);
+                } else if (!batch_mode && !runInBackground) {
+                    while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
+                        if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
+                            handle_error("write");
+                        }
+                    }    
                 }
+                close(pipefd[0]);
             }
             else if (id1 == 0)
             { // forked child process
@@ -345,7 +367,11 @@ int main(int argc, char **argv)
 
     paths = free_paths(paths, init_paths, num_paths);
 
-    printf("Goodbye\n");
+    if (batch_mode) {
+        fclose(batch_file);
+    } else {
+        printf("Goodbye\n");
+    }
     return 0;
 }
 
