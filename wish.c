@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <signal.h>
+#include <dirent.h> 
 
 #define handle_error(msg)   \
     do                      \
@@ -16,6 +17,7 @@
     } while (0)
 
 #define BUFSIZE 1024
+#define PATH_MAX 4096
 
 char **free_paths(char **paths, char *init_paths[], int num_paths);
 void *null_check_free(void *ptr);
@@ -38,6 +40,7 @@ int main(int argc, char **argv)
     char **paths = NULL;
     char *path = NULL;
     int path_found = 0;
+    char cwd[PATH_MAX];
 
     paths = malloc((num_paths) * sizeof(char *));
     if (paths == NULL)
@@ -61,8 +64,11 @@ int main(int argc, char **argv)
         args = null_check_free(args);
         argCount = 0;
         path = null_check_free(path);
-        
-        printf("wish> ");
+
+        if (getcwd(cwd, sizeof(cwd)) == NULL) {
+            handle_error("getcwd()");
+        }
+        printf("%s wish> ", cwd);
         lineSize = getline(&line, &len, stdin); // stdin for interactive mode only
         line[lineSize - 1] = '\0';
 
@@ -158,8 +164,31 @@ int main(int argc, char **argv)
         }
 
         if (strcmp(command, "cd") == 0)
-        { // built in cd command
-            printf("cd command.\n");
+        { // built in cd command           
+            if (getcwd(cwd, sizeof(cwd)) == NULL) {
+                handle_error("getcwd()");
+            }
+            if (argCount - 1 < 1 || argCount - 1 > 1 ) {
+                fprintf(stderr, "usage: cd <dir> \n");
+                continue;
+            }
+            
+            DIR *d;
+            struct dirent *dir;
+            d = opendir(cwd);
+            if (d) {
+                while ((dir = readdir(d)) != NULL) {
+                    if (strcmp(args[1], dir->d_name) == 0) {
+                        strcat(cwd, "/");
+                        strcat(cwd, dir->d_name);
+                        if (chdir(cwd) != 0) {
+                            handle_error("chdir()");
+                        };
+                    }
+                }
+                closedir(d);
+            }
+            continue;
         }
 
         // check for bin
