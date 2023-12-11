@@ -24,6 +24,7 @@ void *null_check_free(void *ptr);
 
 int main(int argc, char **argv)
 {
+    char error_message[128] = "";
     int exit_flag = 0;
     char *parallel_token = NULL;
     int parallel_processes = 0;
@@ -106,6 +107,7 @@ int main(int argc, char **argv)
             argCount = 0;
             path = null_check_free(path);
             redirect_file = null_check_free(redirect_file);
+            redirect = 0;
 
             token = strtok(parallel_commands[i], " ");
             command = malloc((strlen(token) + 1) * sizeof(char));
@@ -135,7 +137,9 @@ int main(int argc, char **argv)
                 if (strcmp(token, ">") == 0) {
                     token = strtok(NULL, " ");
                     if (token == NULL) {
-                        fprintf(stderr, "usage: <command> <args> > <file> \n");
+                        strcpy(error_message,"usage: <command> <args> > <file> \n");
+                        write(STDERR_FILENO, error_message, strlen(error_message));
+                        break;
                     }
                     redirect_file = malloc((strlen(token) + 1) * sizeof(char));
                     if (redirect_file == NULL)
@@ -143,9 +147,11 @@ int main(int argc, char **argv)
                         handle_error("malloc");
                     }
                     strcpy(redirect_file, token);
+                    printf("redirect_file: %s.\n",redirect_file);
                     token = strtok(NULL, " ");
                     if (token != NULL) {
-                        fprintf(stderr, "usage: command <args> > <file> \n");
+                        strcpy(error_message,"usage: command <args> > <file> \n");
+                        write(STDERR_FILENO, error_message, strlen(error_message));
                     } else {
                         redirect = 1;
                     }
@@ -172,7 +178,8 @@ int main(int argc, char **argv)
             if (strcmp(command, "exit") == 0)
             { // built in exit command
                 if (argCount > 1) {
-                    fprintf(stderr, "usage: exit\n");
+                    strcpy(error_message,"usage: exit\n");
+                    write(STDERR_FILENO, error_message, strlen(error_message));
                     continue;
                 } else {
                     exit_flag = 1;
@@ -230,7 +237,8 @@ int main(int argc, char **argv)
                     handle_error("getcwd()");
                 }
                 if (argCount - 1 < 1 || argCount - 1 > 1 ) {
-                    fprintf(stderr, "usage: cd <dir> \n");
+                    strcpy(error_message,"usage: cd <dir> \n");
+                    write(STDERR_FILENO, error_message, strlen(error_message));
                     continue;
                 }
                 
@@ -270,7 +278,8 @@ int main(int argc, char **argv)
                 }
             }   
             if (!path_found) {
-                fprintf(stderr, "bin not found in path\n");
+                strcpy(error_message,"bin not found in path\n");
+                write(STDERR_FILENO, error_message, strlen(error_message));
                 continue;
             }
 
@@ -281,7 +290,11 @@ int main(int argc, char **argv)
                 // > redirection here
                 int output_fd = 1;
                 if (redirect) {
+                    printf("redirect_file: %s.\n",redirect_file);
                     redirect_fd = open(redirect_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (redirect == -1) {
+                        handle_error("open");
+                    }
                     output_fd = redirect_fd;
                 }
 
