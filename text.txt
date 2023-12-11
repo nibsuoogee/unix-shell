@@ -1,0 +1,9 @@
+total 60
+drwxr-xr-x  4 elias elias  4096 Dec 11 10:24 .
+drwxr-xr-x 11 elias elias  4096 Dec  9 12:26 ..
+drwxr-xr-x  8 elias elias  4096 Dec 11 09:25 .git
+-rw-r--r--  1 elias elias    12 Dec  9 12:35 README.md
+drwxr-xr-x  2 elias elias  4096 Dec 11 09:18 subdir
+-rw-r--r--  1 elias elias     0 Dec 11 10:25 text.txt
+-rwxr-xr-x  1 elias elias 27728 Dec 11 10:24 wish
+-rw-r--r--  1 elias elias  8852 Dec 11 10:24 wish.c

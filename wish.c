@@ -24,11 +24,15 @@ void *null_check_free(void *ptr);
 
 int main(int argc, char **argv)
 {
+    int exit_flag = 0;
     char **args = NULL;
     char *command = NULL;
     char *token = NULL;
+    
     int runInBackground = 0;
-    int exit_flag = 0;
+    int redirect = 0;
+    char *redirect_file;
+    int redirect_fd;
 
     int argCount = 0;
     char *line = NULL;
@@ -64,6 +68,7 @@ int main(int argc, char **argv)
         args = null_check_free(args);
         argCount = 0;
         path = null_check_free(path);
+        redirect_file = null_check_free(redirect_file);
 
         if (getcwd(cwd, sizeof(cwd)) == NULL) {
             handle_error("getcwd()");
@@ -90,6 +95,26 @@ int main(int argc, char **argv)
                 break;
             }
             runInBackground = 0;
+
+            if (strcmp(token, ">") == 0) {
+                token = strtok(NULL, " ");
+                if (token == NULL) {
+                    fprintf(stderr, "usage: <command> <args> > <file> \n");
+                }
+                redirect_file = malloc((strlen(token) + 1) * sizeof(char));
+                if (redirect_file == NULL)
+                {
+                    handle_error("malloc");
+                }
+                strcpy(redirect_file, token);
+                token = strtok(NULL, " ");
+                if (token != NULL) {
+                    fprintf(stderr, "usage: command <args> > <file> \n");
+                } else {
+                    redirect = 1;
+                }
+                break;
+            }
             
             args = realloc(args, (argCount + 1) * sizeof(char *));
             if (args == NULL)
@@ -217,11 +242,22 @@ int main(int argc, char **argv)
         if (id1 > 0)
         { // forked parent process
             close(pipefd[1]);
-            if (runInBackground == 0)
+            // > redirection here
+            int output_fd = 1;
+            if (redirect) {
+                redirect_fd = open(redirect_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                output_fd = redirect_fd;
+            }
+
+            if (redirect == 1 || runInBackground == 0)
             {
                 wait(NULL);
-                while (read(pipefd[0], pipeBuffer, sizeof(pipeBuffer)) > 0)
-                    printf("%s\n", pipeBuffer);
+                ssize_t bytesRead;
+                while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
+                    if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
+                        handle_error("write");
+                    }
+                }
                 close(pipefd[0]);
             }
         }
@@ -246,7 +282,8 @@ int main(int argc, char **argv)
     args = null_check_free(args);
     argCount = 0;
     path = null_check_free(path);
-
+    redirect_file = null_check_free(redirect_file);
+    
     paths = free_paths(paths, init_paths, num_paths);
 
     printf("Goodbye\n");
