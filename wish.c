@@ -21,6 +21,8 @@
 
 char **free_paths(char **paths, char *init_paths[], int num_paths);
 void *null_check_free(void *ptr);
+char *replace_in_string(char *string, const char *target, const char *replacement);
+char *remove_repeats_in_string(char *string, char *output_string, const char *target);
 
 int main(int argc, char **argv)
 {
@@ -44,6 +46,7 @@ int main(int argc, char **argv)
 
     int argCount = 0;
     char *line = NULL;
+    char *output_string = NULL;
     size_t len = 0;
     ssize_t lineSize = 0;
 
@@ -81,6 +84,7 @@ int main(int argc, char **argv)
         }
         parallel_commands = null_check_free(parallel_commands);
         parallel_processes = 0;
+        output_string = null_check_free(output_string);
 
         if (getcwd(cwd, sizeof(cwd)) == NULL) {
             handle_error("getcwd()");
@@ -90,14 +94,20 @@ int main(int argc, char **argv)
         }
         
         lineSize = getline(&line, &len, read_stream);
-
         if (batch_mode && feof(batch_file)) {
             break; // instead skip processing, but remember to 
         }
 
         line[lineSize - 1] = '\0';
-        // start '&' delimited loop
-        
+        output_string = malloc((len + 1) * sizeof(char));
+        if (output_string == NULL) {
+            handle_error("malloc");
+        }
+        strcpy(output_string,line);
+
+        line = replace_in_string(line, "\t", " ");
+        output_string = remove_repeats_in_string(line, output_string, " ");
+
         parallel_token = strtok(line, "&");
         while (parallel_token != NULL) // parse arguments
         {
@@ -118,7 +128,7 @@ int main(int argc, char **argv)
         
         for (int i = 0; i < parallel_processes; i++) {
             // command cleanup
-            line = null_check_free(line);
+            //line = null_check_free(line);
             command = null_check_free(command);
             for (int i = 0; i < argCount; i++)
             {
@@ -364,7 +374,8 @@ int main(int argc, char **argv)
         parallel_commands[i] = null_check_free(parallel_commands[i]);
     }
     parallel_commands = null_check_free(parallel_commands);
-
+    output_string = null_check_free(output_string);
+    
     paths = free_paths(paths, init_paths, num_paths);
 
     if (batch_mode) {
@@ -399,4 +410,41 @@ void *null_check_free(void *ptr) {
         ptr = NULL;
     }
     return ptr;
+}
+
+char *replace_in_string(char *string, const char *target, const char *replacement) {
+    char *in_ptr = string;
+    while (*in_ptr != '\0') {
+        if (*in_ptr == *target) {
+            *in_ptr = *replacement;
+        }
+        in_ptr++;
+    }
+    return string;
+}
+
+char *remove_repeats_in_string(char *string, char *output_string, const char *target) {
+    char *in_ptr = string;
+    char *out_ptr = output_string;
+    char last_char;
+    
+    last_char = *in_ptr;
+    *out_ptr = *in_ptr;
+    out_ptr++;
+    in_ptr++;
+    if (*in_ptr != '\0') {
+        while (*in_ptr != '\0') {
+            if (*in_ptr != *target) {
+                *out_ptr = *in_ptr;
+                out_ptr++;
+            } else if (last_char != *target) {
+                *out_ptr = *in_ptr;
+                out_ptr++;
+            }
+            last_char = *in_ptr;
+            in_ptr++;
+        }
+        *out_ptr = '\0'; 
+    }
+    return output_string;
 }
