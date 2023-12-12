@@ -36,6 +36,7 @@ int main(int argc, char **argv)
     char *parallel_token = NULL;
     int parallel_processes = 0;
     char **parallel_commands = NULL;
+    int *parallel_commands_fds = NULL;
     char **args = NULL;
     char *command = NULL;
     char *token = NULL;
@@ -43,7 +44,6 @@ int main(int argc, char **argv)
     int runInBackground = 0;
     int redirect = 0;
     char *redirect_file = NULL;
-    int redirect_fd;
 
     int argCount = 0;
     char *line = NULL;
@@ -91,6 +91,7 @@ int main(int argc, char **argv)
         parallel_commands = null_check_free(parallel_commands);
         parallel_processes = 0;
         line = null_check_free(line);
+        parallel_commands_fds = null_check_free(parallel_commands_fds);
 
         if (getcwd(cwd, sizeof(cwd)) == NULL) {
             handle_error("getcwd()");
@@ -133,9 +134,17 @@ int main(int argc, char **argv)
             parallel_token = strtok(NULL, "&");
         }
         
+        parallel_commands_fds = malloc(parallel_processes * sizeof(int));
+        if (parallel_commands_fds == NULL)
+        {
+            handle_error("malloc");
+        }
+        for (int i = 0; i < parallel_processes; i++) {
+            parallel_commands_fds[i] = 1;
+        }
+
         for (int i = 0; i < parallel_processes; i++) {
             // command cleanup
-            //line = null_check_free(line);
             command = null_check_free(command);
             for (int i = 0; i < argCount; i++)
             {
@@ -174,6 +183,7 @@ int main(int argc, char **argv)
                         write(STDERR_FILENO, error_message, strlen(error_message));
                         break; 
                     }
+                    
                     redirect_file = malloc((strlen(token) + 1) * sizeof(char));
                     if (redirect_file == NULL)
                     {
@@ -200,9 +210,7 @@ int main(int argc, char **argv)
                     handle_error("malloc");
                 }
                 strcpy(args[argCount], token);
-                argCount++;
-                i++;
-                
+                argCount++;                
                 token = strtok(NULL, " ");
             }
 
@@ -224,13 +232,6 @@ int main(int argc, char **argv)
                 handle_error("realloc");
             }
             args[argCount] = NULL; // add execv's required NULL pointer to end of args
-            
-            char pipeBuffer[BUFSIZE] = "";
-            int pipefd[2];
-            if (pipe(pipefd) == -1)
-            {
-                handle_error("pipe");
-            }
             
             // set arbitrary number of new paths, overwrite old paths
             if (strcmp(command, "path") == 0)
@@ -309,47 +310,28 @@ int main(int argc, char **argv)
                 continue;
             }
 
+            // open fd for given child
+            if (redirect) {
+                if (redirect_file != NULL) { 
+                    parallel_commands_fds[i] = open(redirect_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (parallel_commands_fds[i] == -1) {
+                        handle_error("open");
+                    }
+                } else {
+                    parallel_commands_fds[i] = open("/dev/null", O_WRONLY);
+                    if (parallel_commands_fds[i] == -1) {
+                        handle_error("open");
+                    }
+                }
+            }
+
             pid_t id1 = fork();
             if (id1 > 0)
             { // forked parent process
-                //printf("process: %d\n", i);
-                // id1 is the child pid
-                printf("parent: id1: %d, mypid: %d, command: %s\n", id1, getpid(), command);
-                close(pipefd[1]);
-                // > redirection here
-                int output_fd = 1;
-                //wait(NULL);
-                ssize_t bytesRead;
-                if (redirect) {
-                    if (redirect_file != NULL) { 
-                        redirect_fd = open(redirect_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                        if (redirect == -1) {
-                            handle_error("open");
-                        }
-                        output_fd = redirect_fd;
-
-                        while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
-                            if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
-                                handle_error("write");
-                            }
-                        }
-                    }
-                } else if (/*!batch_mode && */!runInBackground) {
-                    while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
-                        if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
-                            handle_error("write");
-                        }
-                    }    
-                }
-                close(pipefd[0]);
             }
             else if (id1 == 0)
             { // forked child process
-                printf("child: mypid: %d, command: %s\n", getpid(), command);
-                close(pipefd[0]);
-                dup2(pipefd[1], STDOUT_FILENO);
-                close(pipefd[1]);
-
+                dup2(parallel_commands_fds[i], STDOUT_FILENO);
                 execv(path, args);
                 handle_error("execv");
             }
@@ -358,7 +340,14 @@ int main(int argc, char **argv)
         // waitpid
         // wait for parallelized processes
         for (int i = 0; i < parallel_processes; ++i) {
-            wait(NULL);
+            int status;
+            waitpid(-1, &status, 0);
+        }
+        for (int i = 0; i < parallel_processes; ++i) {
+            if (parallel_commands_fds[i] == 1) { continue; }
+            if (close(parallel_commands_fds[i]) == -1) {
+                handle_error("close");
+            }
         }
     }
     // shell exit cleanup 
@@ -377,7 +366,8 @@ int main(int argc, char **argv)
         parallel_commands[i] = null_check_free(parallel_commands[i]);
     }
     parallel_commands = null_check_free(parallel_commands);
-    
+    parallel_commands_fds = null_check_free(parallel_commands_fds);
+
     paths = free_paths(paths, init_paths, num_paths);
 
     if (batch_mode) {
