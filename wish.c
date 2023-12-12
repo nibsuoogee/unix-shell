@@ -22,7 +22,8 @@
 char **free_paths(char **paths, char *init_paths[], int num_paths);
 void *null_check_free(void *ptr);
 char *replace_in_string(char *string, const char *target, const char *replacement);
-char *remove_repeats_in_string(char *string, char *output_string, const char *target);
+char *remove_repeats_in_string(char *string, const char *target);
+char *add_spaces_around_character(char *string, const char *target);
 
 int main(int argc, char **argv)
 {
@@ -46,7 +47,6 @@ int main(int argc, char **argv)
 
     int argCount = 0;
     char *line = NULL;
-    char *output_string = NULL;
     size_t len = 0;
     ssize_t lineSize = 0;
 
@@ -70,11 +70,17 @@ int main(int argc, char **argv)
     if (argc == 2) {
         batch_file = fopen(argv[1], "r");
         if (batch_file == NULL) {
-            handle_error("fopen");
+            strcpy(error_message,"An error has occurred\n");
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            exit(EXIT_FAILURE);
         }
         read_stream = batch_file;
         batch_mode = 1;
-    } 
+    } else if (argc > 2) {
+        strcpy(error_message,"An error has occurred\n");
+        write(STDERR_FILENO, error_message, strlen(error_message));
+        return(EXIT_FAILURE);
+    }
 
     while (!exit_flag)
     {
@@ -84,7 +90,7 @@ int main(int argc, char **argv)
         }
         parallel_commands = null_check_free(parallel_commands);
         parallel_processes = 0;
-        output_string = null_check_free(output_string);
+        line = null_check_free(line);
 
         if (getcwd(cwd, sizeof(cwd)) == NULL) {
             handle_error("getcwd()");
@@ -99,15 +105,16 @@ int main(int argc, char **argv)
         }
 
         line[lineSize - 1] = '\0';
-        output_string = malloc((len + 1) * sizeof(char));
-        if (output_string == NULL) {
-            handle_error("malloc");
+        line = remove_repeats_in_string(line, " ");
+
+        if (strlen(line) <= 1) {
+            continue;
         }
-        strcpy(output_string,line);
-
+        
         line = replace_in_string(line, "\t", " ");
-        output_string = remove_repeats_in_string(line, output_string, " ");
-
+        line = add_spaces_around_character(line, ">");
+        line = remove_repeats_in_string(line, " ");
+        
         parallel_token = strtok(line, "&");
         while (parallel_token != NULL) // parse arguments
         {
@@ -159,18 +166,13 @@ int main(int argc, char **argv)
                 }
                 runInBackground = 0;
 
-                if (strcmp(token, "&&") == 0)
-                {
-                    runInBackground = 1;
-                    break;
-                }
-
                 if (strcmp(token, ">") == 0) {
+                    redirect = 1;
                     token = strtok(NULL, " ");
-                    if (token == NULL) {
-                        strcpy(error_message,"usage: <command> <args> > <file> \n");
+                    if (token == NULL) { 
+                        strcpy(error_message,"An error has occurred\n");
                         write(STDERR_FILENO, error_message, strlen(error_message));
-                        break;
+                        break; 
                     }
                     redirect_file = malloc((strlen(token) + 1) * sizeof(char));
                     if (redirect_file == NULL)
@@ -178,12 +180,11 @@ int main(int argc, char **argv)
                         handle_error("malloc");
                     }
                     strcpy(redirect_file, token);
+                    
                     token = strtok(NULL, " ");
                     if (token != NULL) {
-                        strcpy(error_message,"usage: command <args> > <file> \n");
+                        strcpy(error_message,"An error has occurred\n");
                         write(STDERR_FILENO, error_message, strlen(error_message));
-                    } else {
-                        redirect = 1;
                     }
                     break;
                 }
@@ -208,7 +209,7 @@ int main(int argc, char **argv)
             if (strcmp(command, "exit") == 0)
             { // built in exit command
                 if (argCount > 1) {
-                    strcpy(error_message,"usage: exit\n");
+                    strcpy(error_message,"An error has occurred\n");
                     write(STDERR_FILENO, error_message, strlen(error_message));
                     continue;
                 } else {
@@ -267,26 +268,21 @@ int main(int argc, char **argv)
                     handle_error("getcwd()");
                 }
                 if (argCount - 1 < 1 || argCount - 1 > 1 ) {
-                    strcpy(error_message,"usage: cd <dir> \n");
+                    strcpy(error_message,"An error has occurred\n");
                     write(STDERR_FILENO, error_message, strlen(error_message));
                     continue;
                 }
-                
                 DIR *d;
-                struct dirent *dir;
+                strcat(cwd, "/");
+                strcat(cwd, args[1]);
                 d = opendir(cwd);
-                if (d) {
-                    while ((dir = readdir(d)) != NULL) {
-                        if (strcmp(args[1], dir->d_name) == 0) {
-                            strcat(cwd, "/");
-                            strcat(cwd, dir->d_name);
-                            if (chdir(cwd) != 0) {
-                                handle_error("chdir()");
-                            };
-                        }
-                    }
-                    closedir(d);
+                if (d == NULL) {
+                    handle_error("opendir");
                 }
+                if (chdir(cwd) != 0) {
+                    handle_error("chdir()");
+                };
+                closedir(d);
                 continue;
             }
 
@@ -308,7 +304,7 @@ int main(int argc, char **argv)
                 }
             }   
             if (!path_found) {
-                strcpy(error_message,"bin not found in path\n");
+                strcpy(error_message,"An error has occurred\n");
                 write(STDERR_FILENO, error_message, strlen(error_message));
                 continue;
             }
@@ -316,24 +312,29 @@ int main(int argc, char **argv)
             pid_t id1 = fork();
             if (id1 > 0)
             { // forked parent process
+                //printf("process: %d\n", i);
+                // id1 is the child pid
+                printf("parent: id1: %d, mypid: %d, command: %s\n", id1, getpid(), command);
                 close(pipefd[1]);
                 // > redirection here
                 int output_fd = 1;
-                wait(NULL);
+                //wait(NULL);
                 ssize_t bytesRead;
                 if (redirect) {
-                    redirect_fd = open(redirect_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                    if (redirect == -1) {
-                        handle_error("open");
-                    }
-                    output_fd = redirect_fd;
+                    if (redirect_file != NULL) { 
+                        redirect_fd = open(redirect_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                        if (redirect == -1) {
+                            handle_error("open");
+                        }
+                        output_fd = redirect_fd;
 
-                    while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
-                        if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
-                            handle_error("write");
+                        while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
+                            if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
+                                handle_error("write");
+                            }
                         }
                     }
-                } else if (!batch_mode && !runInBackground) {
+                } else if (/*!batch_mode && */!runInBackground) {
                     while ((bytesRead = read(pipefd[0], pipeBuffer, sizeof(pipeBuffer))) > 0) {
                         if (write(output_fd, pipeBuffer, bytesRead) != bytesRead) {
                             handle_error("write");
@@ -344,6 +345,7 @@ int main(int argc, char **argv)
             }
             else if (id1 == 0)
             { // forked child process
+                printf("child: mypid: %d, command: %s\n", getpid(), command);
                 close(pipefd[0]);
                 dup2(pipefd[1], STDOUT_FILENO);
                 close(pipefd[1]);
@@ -353,6 +355,7 @@ int main(int argc, char **argv)
             }
         }
 
+        // waitpid
         // wait for parallelized processes
         for (int i = 0; i < parallel_processes; ++i) {
             wait(NULL);
@@ -374,7 +377,6 @@ int main(int argc, char **argv)
         parallel_commands[i] = null_check_free(parallel_commands[i]);
     }
     parallel_commands = null_check_free(parallel_commands);
-    output_string = null_check_free(output_string);
     
     paths = free_paths(paths, init_paths, num_paths);
 
@@ -423,9 +425,13 @@ char *replace_in_string(char *string, const char *target, const char *replacemen
     return string;
 }
 
-char *remove_repeats_in_string(char *string, char *output_string, const char *target) {
+char *remove_repeats_in_string(char *string, const char *target) {
+    char *temp = malloc((strlen(string) + 1) * sizeof(char));
+    if (temp == NULL) {
+        handle_error("malloc");
+    }
     char *in_ptr = string;
-    char *out_ptr = output_string;
+    char *out_ptr = temp;
     char last_char;
     
     last_char = *in_ptr;
@@ -446,5 +452,55 @@ char *remove_repeats_in_string(char *string, char *output_string, const char *ta
         }
         *out_ptr = '\0'; 
     }
-    return output_string;
+    temp = realloc(temp, (strlen(temp) + 1) * sizeof(char));
+    if (temp == NULL) {
+        handle_error("realloc");
+    }
+
+    if (string != NULL) {
+        free(string);
+        string = NULL;
+    }
+    return temp;
 }
+
+char *add_spaces_around_character(char *string, const char *target) {
+    char *temp = malloc((strlen(string) + 1) * 3 * sizeof(char));
+    if (temp == NULL) {
+        handle_error("malloc");
+    }
+    // loop through orig array, looking for target character
+    // when ptr on target char, output [space, target, space] to output
+    char *in_ptr = string;
+    char *out_ptr = temp;
+
+    if (*in_ptr != '\0') {
+        while (*in_ptr != '\0') {
+            if (*in_ptr == *target) {
+                *out_ptr = ' ';
+                out_ptr++;
+                *out_ptr = *target;
+                out_ptr++;
+                *out_ptr = ' ';
+                out_ptr++;
+            } else {
+                *out_ptr = *in_ptr;
+                out_ptr++;
+            }
+            in_ptr++;
+        }
+        *out_ptr = '\0'; 
+    }
+
+    temp = realloc(temp, (strlen(temp) + 1) * sizeof(char));
+    if (temp == NULL) {
+        handle_error("realloc");
+    }
+
+    if (string != NULL) {
+        free(string);
+        string = NULL;
+    }
+    return temp;
+}
+

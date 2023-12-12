@@ -1,1 +1,0 @@
-ls -al > ls.txt & echo elias > elias.txt
